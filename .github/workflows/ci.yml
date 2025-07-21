@@ -1,0 +1,71 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  JAVA_VERSION: '17'
+  MAVEN_OPTS: -Xmx2048m
+  DOCKER_BUILDKIT: 1
+
+jobs:
+  # ========================================
+  # BUILD ÉS TESZT FÁZIS
+  # ========================================
+  build-and-test:
+    name: Build és Unit/Integration Tesztek
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: testdb
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout kód
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Teljes git history SonarQube-hoz
+
+      - name: Java 17 beállítása
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Maven függőségek cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Maven build és tesztek
+        run: |
+          mvn clean verify \
+            -Dspring.datasource.url=jdbc:postgresql://localhost:5432/testdb \
+            -Dspring.datasource.username=postgres \
+            -Dspring.datasource.password=postgres \
+            -Djacoco.skip=false
+
+      - name: JaCoCo kódfedettség jelentés
+        id: jacoco
+        uses: PavanMudigonda/jacoco-reporter@v5.0
+        with:
+          coverage_results_path: '**/target/site/jacoco/jacoco.xml'
+          coverage_report_name: Kódfedettség
+          coverage_report_title: JaCoCo J
